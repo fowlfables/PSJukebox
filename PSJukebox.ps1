@@ -7,6 +7,8 @@
 Add-Type -AssemblyName presentationCore
 $mediaPlayer = New-Object system.windows.media.mediaplayer
 $mediaPlayer2 = New-Object system.windows.media.mediaplayer
+$mediaPlayer.Volume = 1
+$mediaPlayer2.Volume = 1
 
 #Reserved XX# csv file
 $Songs = Import-Csv ".\PSJukebox.ini"
@@ -27,14 +29,16 @@ $w = 1280
 $h = 800
 
 $split = 8;
+$loop = $false;
 
 #begin to draw forms
 $Form = New-Object System.Windows.Forms.Form
-$Form.Text = "PowerShell Jukebox v1.0"
+$Form.Text = "PowerShell Jukebox v1.1"
 $Form.Size = New-Object System.Drawing.Size($w,$h)
 $Form.StartPosition = "CenterScreen"
-#$Form.BackColor = "MidnightBlue"
 $statusBar1 = New-Object System.Windows.Forms.StatusBar
+$statusMusic = ""
+$statusSoundEffect = ""
 
 $resizeHandler = { DrawButtons }
 
@@ -49,54 +53,93 @@ $volUp = {
     $obj.SendKeys([char]175)
 }
 $ff = {
-    $mediaPlayer.Position = New-Object System.TimeSpan(0, 0, 0, ($mediaPlayer.Position.Seconds + 30), 0)
+    $mediaPlayer.Position = New-Object System.TimeSpan(0, 0, 0, ($mediaPlayer.Position.TotalSeconds + 30), 0)
 }
 $rw = {
-    $mediaPlayer.Position = New-Object System.TimeSpan(0, 0, 0, ($mediaPlayer.Position.Seconds - 10), 0)
+    $mediaPlayer.Position = New-Object System.TimeSpan(0, 0, 0, ($mediaPlayer.Position.TotalSeconds - 10), 0)
+}
+
+$changeLoop = {
+    if($Script:loop){
+        $Script:loop=$false
+    }else{
+        $Script:loop=$true
+    }
 }
 
 $play_click =
 {
     if($Songs[$this.Name].Type -eq 0){
-        $statusBar1.Text = "Playing $($Songs[$this.Name].File)"
         $mediaPlayer.open([uri]($PSScriptRoot + "\" + "$($Songs[$this.Name].File)"))
-        #Start-Sleep 2 # This allows the $wmplayer time to load the audio file
-        #$duration = $mediaPlayer.NaturalDuration.TimeSpan.TotalSeconds
         $mediaPlayer.Play()
-        #Start-Sleep $duration
-
+        $Script:statusMusic = "$($Songs[$this.Name].Title)"
     } else {
         $mediaPlayer2.open([uri]($PSScriptRoot + "\" + "$($Songs[$this.Name].File)"))
         $mediaPlayer2.Play()
+        $Script:statusSoundEffect = "$($Songs[$this.Name].Title)"
     }
 }
 
 $stop_click =
 {
-  $statusBar1.Text = "Stopped"
   $mediaPlayer.Stop()
   $mediaPlayer2.Stop()
+  $Script:loop = $false
 }
+
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Enabled = $true
+$timer.Interval = 250
+$timer_Tick = {
+    if($mediaPlayer.HasAudio){
+        $duration1 = New-Timespan -Seconds $mediaPlayer.NaturalDuration.TimeSpan.TotalSeconds
+        $position1 = New-Timespan -Seconds $mediaPlayer.Position.TotalSeconds
+        $time1 = " : " + ('{0:00}:{1:00}:{2:00}' -f $position1.Hours,$position1.Minutes,$position1.Seconds) + "/" + ('{0:00}:{1:00}:{2:00}' -f $duration1.Hours,$duration1.Minutes,$duration1.Seconds)
+    }
+    if($mediaPlayer2.HasAudio){
+        $duration2 = New-Timespan -Seconds $mediaPlayer2.NaturalDuration.TimeSpan.TotalSeconds
+        $position2 = New-Timespan -Seconds $mediaPlayer2.Position.TotalSeconds
+        $time2 = " : " + ('{0:00}:{1:00}:{2:00}' -f $position2.Hours,$position2.Minutes,$position2.Seconds) + "/" + ('{0:00}:{1:00}:{2:00}' -f $duration2.Hours,$duration2.Minutes,$duration2.Seconds)
+    }
+    if($loop){
+        if($mediaPlayer.Position.TotalMilliseconds -eq $mediaPlayer.NaturalDuration.TimeSpan.TotalMilliseconds){
+            $mediaPlayer.Stop()
+            $mediaPlayer.Play()
+        }
+        if($mediaPlayer.Position.TotalMilliseconds -le $mediaPlayer.NaturalDuration.TimeSpan.TotalMilliseconds){
+            if($mediaPlayer2.Position.TotalMilliseconds -lt $mediaPlayer2.NaturalDuration.TimeSpan.TotalMilliseconds){
+                $statusBar1.Text = "Looping Music: " + $statusMusic + $time1 + "    ---|---    Sound: " + $statusSoundEffect + $time2
+             } else {
+                $statusBar1.Text = "Looping Music: " + $statusMusic + $time1
+             }
+        }
+    } else {
+        if(($mediaPlayer.Position.TotalMilliseconds -lt $mediaPlayer.NaturalDuration.TimeSpan.TotalMilliseconds) -and ($mediaPlayer.Position.TotalMilliseconds -gt 0)){
+            if(($mediaPlayer2.Position.TotalMilliseconds -lt $mediaPlayer2.NaturalDuration.TimeSpan.TotalMilliseconds) -and ($mediaPlayer2.Position.TotalMilliseconds -gt 0)){
+                $statusBar1.Text = "Playing Music: " + $statusMusic + $time1 + "    ---|---    Sound: " + $statusSoundEffect + $time2
+             } else {
+                $statusBar1.Text = "Playing Music: " + $statusMusic + $time1
+             }
+        }elseif(($mediaPlayer2.Position.TotalMilliseconds -lt $mediaPlayer2.NaturalDuration.TimeSpan.TotalMilliseconds) -and ($mediaPlayer2.Position.TotalMilliseconds -gt 0)){
+                $statusBar1.Text = "Playing Sound: " + $statusSoundEffect + $time2
+        } else {
+            $statusBar1.Text = "Stopped"
+        }
+    }
+}
+$timer.add_Tick($timer_Tick)
 
 function DrawButtons{
     $Form.Controls.Clear()
     $w = ($Form.Size.Width-17)
     $h = ($Form.Size.Height-62)
-
-    #$listbox = New-Object System.Windows.Forms.ListBox
-    #$listbox.Location = New-Object System.Drawing.Size((($w/$split)*6),(($h/$split)*6))
-    #$listbox.Size = New-Object System.Drawing.Size(($w/$split),(($h/$split)-50))
-    #ForEach($song in $Songs){
-    #    $listbox.Items.Add($song.Title)
-    #}
-    #$Form.Controls.Add($listbox)
-
+    
     $statusBar1.Name = "statusBar1"
     $statusBar1.Text = "Stopped"
     $form.Controls.Add($statusBar1)
     $Buttons = @()
 
-    for( $i=0; $i -lt 59; $i++ ){
+    for( $i=0; $i -lt 58; $i++ ){
         $button = New-Object System.Windows.Forms.Button
         $Buttons = $Buttons + $button
         $Buttons[$i].Name = $i;
@@ -124,6 +167,14 @@ function DrawButtons{
         $Form.Controls.Add($Buttons[$i])
     }
     
+    #Loop
+    $LoopButton = New-Object System.Windows.Forms.Button
+    $LoopButton.Location = New-Object System.Drawing.Size((($w/$split)*2),(($h/$split)*7))
+    $LoopButton.Size = New-Object System.Drawing.Size(($w/$split),(($h/$split)-0))
+    $LoopButton.Text = "Loop"
+    $LoopButton.Add_Click($changeLoop)
+    $Form.Controls.Add($LoopButton)
+
     #VOL-
     $VDownButton = New-Object System.Windows.Forms.Button
     $VDownButton.Location = New-Object System.Drawing.Size((($w/$split)*3),(($h/$split)*7))
@@ -163,20 +214,14 @@ function DrawButtons{
     $StopButton.Text = "STOP"
     $StopButton.Add_Click($stop_click)
     $Form.Controls.Add($StopButton)
-
 }
 
 DrawButtons
 
-#$Form.Add_KeyDown({if ($_.KeyCode -eq "F1"){&amp; $add_reservation_click}})
 $Form.Add_KeyDown({if ($_.KeyCode -eq "Escape")
 {$Form.Close()}})
-
-
 
 #Show form
 $Form.Topmost = $False
 $Form.Add_Shown({$Form.Activate()})
 [void] $Form.ShowDialog()
-
-
